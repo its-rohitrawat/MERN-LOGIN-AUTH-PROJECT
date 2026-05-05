@@ -7,7 +7,7 @@ import userRoutes from "./routes/user-routes.js"
 
 
 const app = express();
-PORT = process.env.PORT || 8000;
+const PORT = process.env.PORT || 9000;
 
 connectDB()
 
