@@ -3,6 +3,8 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { verifyMail } from "../config/verify-mail.js";
 import { Session } from "../model/session-model.js";
+import { sendOtpMail } from "../config/otp-mail.js";
+import { use } from "react";
 
 export const registerUser = async (req, res) => {
   try {
@@ -71,7 +73,7 @@ export const verification = async (req, res) => {
       });
     }
 
-    const token = authHeader.split("")[1];
+    const token = authHeader.split(" ")[1];
 
     let decodedInfo;
 
@@ -191,3 +193,128 @@ export const loginUser = async (req, res) => {
     });
   }
 };
+
+//!logout
+
+export const logout = async (req, res) => {
+  try {
+    const userId = req.userId; //authmiddleware!!
+    const sessionPromise = Session.deleteMany({ userId });
+    const userPromise = User.findByIdAndUpdate(userId, { isLoggedIn: false });
+    // await Session.deleteMany({ userId });
+    // await User.findByIdAndUpdate(userId, { isLoggedIn: false });
+
+    Promise.allSettled([sessionPromise, userPromise])
+      .then(() => {
+        return res.status(200).json({
+          success: true,
+          message: "Logged out successfully",
+        });
+      })
+      .catch((err) => {
+        res.status(400).json({
+          success: false,
+          message: err,
+        });
+      });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "something went wrong",
+    });
+  }
+};
+
+//!forgotpassword
+
+export const forgotpassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: "user not found",
+      });
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiry = new Date(Date.now() + 10 * 60 * 1000);
+
+    user.otp = otp;
+    user.optExpiry = expiry;
+    await user.save();
+
+    await sendOtpMail(email, otp);
+    return res.status(200).json({
+      success: true,
+      message: `OTP sent successfully to ${email}`,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "something went wrong",
+    });
+  }
+};
+
+//!verifyotp
+export const verifyOtp = async (req, res) => {
+  try {
+    const { otp } = req.body;
+    const { email } = req.params.email;
+
+    if (!otp) {
+      return res.status(400).json({
+        success: false,
+        message: "otp is required",
+      });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: "user not found",
+      });
+    }
+
+    if (!user.otp || !user.optExpiry) {
+      return res.status(400).json({
+        success: false,
+        message: "Otp not generated or already verified",
+      });
+    }
+
+    if (user.optExpiry < new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: "Otp has required, Please generate new one",
+      });
+    }
+
+    if (otp !== user.otp) {
+      return res.status(400).json({
+        success: false,
+        message: "invalid otp",
+      });
+    }
+
+    user.otp = null;
+    user.optExpiry = null;
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Otp verify successfully",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+//!confirm password
